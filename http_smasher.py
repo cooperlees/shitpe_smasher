@@ -12,24 +12,19 @@ START_TIME = time.time()
 CLICK_CONTEXT_SETTINGS = {'help_option_names': ('-h', '--help')}
 SHORT_HELP = 'Hammer the SHIT out of a webserver - --slam_count is per process!!'
 
-async def _send_req(url, success, total):
-    # TODO: Get these counters working - return?
-    total += 1
+async def _send_req(url):
     try: 
         response = await aiohttp.request('GET', url)
         await response.close()
     except Exception:
-        return
-    success += 1
+        return (0,1)
+    return (1,1)
 
 
 def _slammer_proc(atonce, url, slam_count, verbose):
     loop = asyncio.get_event_loop()
     success_reqs = 0
     total_reqs = 0
-
-    if verbose:
-        print("- Slamming {} {} @ once -".format(url, atonce))
 
     batch_count = 0
     slams_done = 0
@@ -39,14 +34,16 @@ def _slammer_proc(atonce, url, slam_count, verbose):
         togo -= current_batch
 
         tasks = [
-            $# TODO: Somehow get the return values and add to counters
-            _send_req(
+            asyncio.ensure_future(_send_req(
                 '{}{}'.format(url, cunt), 
-                success_reqs, 
-                total_reqs,
-            ) for cunt in range(current_batch)
+            )) for cunt in range(current_batch)
         ]
         loop.run_until_complete(asyncio.wait(tasks))
+
+        for task in tasks:
+            current_success_reqs, current_total_reqs = task.result()
+            success_reqs += current_success_reqs
+            total_reqs += current_total_reqs
 
         batch_count += 1
         slams_done += current_batch
@@ -55,7 +52,6 @@ def _slammer_proc(atonce, url, slam_count, verbose):
                 batch_count, slams_done, slam_count, url))
 
     loop.close()
-    print("End of slammer_proc", success_reqs, total_reqs)
     return (success_reqs, total_reqs)
 
 
@@ -69,6 +65,10 @@ def _slammer_proc(atonce, url, slam_count, verbose):
 def main(atonce, url, slam_count, verbose, workers):
     success_reqs = 0
     total_reqs = 0
+
+    if verbose:
+        print("- Slamming {} {} at once in {} procs -".format(url, atonce, workers))
+
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
         slammers = {}
@@ -85,12 +85,11 @@ def main(atonce, url, slam_count, verbose, workers):
 
         for future in concurrent.futures.as_completed(slammers):
             current_success, current_total = future.result()
-            print("Result:", current_success, current_total)  # COOPER
             success_reqs += current_success
             total_reqs += current_total
 
 
-    print("--> Finished slamming {} {} times ({} total attempts in {} seconds)".format(
+    print("--> Finished slamming {} {} times ({} total attempts) in {} seconds".format(
         url, success_reqs, total_reqs, (time.time() - START_TIME)))
 
 
